@@ -51,18 +51,18 @@ After that, two functions need to be created: :func:`core.feed.Feed.update` and 
 
 See how the :func:`core.feed.Feed.update_xml` helper is used. Since the ``source`` URL returns XML data, ``update_xml`` will know how to parse it and produce python dictionaries that can then be passed to the :func:`core.feed.Feed.analyze` function::
 
-    def analyze(self, dict):
-          url_string = re.search(r"URL: (?P<url>\S+),", dict['description']).group('url')
+    def analyze(self, item):
+          url_string = re.search(r"URL: (?P<url>\S+),", item['description']).group('url')
 
           context = {}
-          date_string = re.search(r"\((?P<date>[0-9\-]+)\)", dict['title']).group('date')
+          date_string = re.search(r"\((?P<date>[0-9\-]+)\)", item['title']).group('date')
           context['date_added'] = datetime.strptime(date_string, "%Y-%m-%d")
-          context['status'] = re.search(r"status: (?P<status>[^,]+)", dict['description']).group('status')
-          context['version'] = int(re.search(r"version: (?P<version>[^,]+)", dict['description']).group('version'))
-          context['guid'] = dict['guid']
+          context['status'] = re.search(r"status: (?P<status>[^,]+)", item['description']).group('status')
+          context['version'] = int(re.search(r"version: (?P<version>[^,]+)", item['description']).group('version'))
+          context['guid'] = item['guid']
           context['source'] = self.name
           try:
-              context['md5'] = re.search(r"MD5 hash: (?P<md5>[a-f0-9]+)", dict['description']).group('md5')
+              context['md5'] = re.search(r"MD5 hash: (?P<md5>[a-f0-9]+)", item['description']).group('md5')
           except AttributeError as e:
               pass
 
@@ -80,11 +80,10 @@ To avoid having to deal with duplicate elements, the use of :func:`core.observab
 
 Context, tags, and sources can also be added to Observables. To do so, use the  :func:`core.observables.Observable.add_context`, :func:`core.observables.Observable.tag`, or :func:`core.observables.Observable.add_source` accordingly.
 
-
 Testing feeds
 ^^^^^^^^^^^^^
 
-Before pushing a feed into production, it is recommended to test them with the simple script ``testfeeds.py``::
+Before pushing a feed into production, it is recommended to test them with the simple script ``tests/testfeeds.py``::
 
     $ python testfeeds.py ZeusTrackerConfigs
     Running ZeusTrackerConfigs...
@@ -92,8 +91,71 @@ Before pushing a feed into production, it is recommended to test them with the s
 
 Any raised exception will be displayed.
 
+How to add plugins
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Plugins to work on data(observables)
+    * Plugins should be placed in: **plugins/analytics/(public|private)/**
+    * The observable types can be found in **core/observables/**
+    * **Example:** MacAddress, Hash, Url, Ip, Hash, Hostname, Email, Bitcoint, etc::
+
+Can be imported using::
+
+    from core.observables import Hash, Url, Hostname, Ip, MacAddress, Email
+
+How to check observable type, for example Ip::
+
+  if isinstance(observable, Ip):
+
+
+How to extract iocs/observables from text::
+
+  from core.observables import Observable
+  observables = Observable.from_string(text)
+  
+How to access config data::
+  
+  from core.config.config import yeti_config
+  example: yeti_config.redis.host
+
+Extend web api
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Place your .py, use use redis_api.py as example in::
+
+  core/web/api/redis_api.py
+
+Add import and register to: **core/web/api/api.py**::
+
+  from core.web.api.redis_api import ManageRedisData
+  ManageRedisData.register(api)
+  # you can use render to render html or render_json, for raw responses
+
+How to check if all **services** running correctly
+^^^^^^^^^^^^^^^^^^^^^^^
+
+* Service state should be **running** not loaded::
+
+  "systemctl status yeti_*"
+  
+Logging
+^^^^^^^^^^^^^^^^^^^^^^^
+
+All the logging by default can be found in **/var/log/syslog**::
+
+  tail -f /var/log/syslog
+  
+You can modify some of the systemd services to change **Celery** logging to file, if you need that::
+  
+  -f PATH_TO_LOGFILE
 
 Pushing into production
 ^^^^^^^^^^^^^^^^^^^^^^^
 
 Once the feed is in its corresponding directory, it will show up in the URL ``/dataflows``. Any errors raised by the feeds will show up here. Feeds can also be individually refreshed or toggled. A green row confirms that your feed is up and running!
+
+
+Contributing
+------------
+
+Want to contribute? Awesome! Please follow the instructions in `contrib <https://github.com/yeti-platform/yeti/tree/master/contrib/>`_ to make sure everything goes smoothly.

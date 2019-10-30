@@ -1,25 +1,28 @@
+
 from __future__ import unicode_literals
 
 from flask import Blueprint, render_template, redirect, url_for
 from flask import g
-
-from core.investigation import Investigation
-from core.web.helpers import get_object_or_404
-from core.web.api.api import bson_renderer
 
 from core.web.frontend.entities import EntityView
 from core.web.frontend.observables import ObservableView
 from core.web.frontend.indicators import IndicatorView
 from core.web.frontend.investigations import InvestigationView
 from core.web.frontend.system import SystemView
+from core.web.frontend.actions import ActionsView
 
 from core.observables import *
 from core.entities import *
 from core.indicators import *
 from core.exports import ExportTemplate
 from core.web.frontend.users import UsersView, UserAdminView
+from core.web.frontend.groups import GroupView, GroupAdminView
 
-frontend = Blueprint("frontend", __name__, template_folder="templates", static_folder="staticfiles")
+frontend = Blueprint(
+    "frontend",
+    __name__,
+    template_folder="templates",
+    static_folder="staticfiles")
 
 
 @frontend.before_request
@@ -47,17 +50,22 @@ def index():
 
 UsersView.register(frontend)
 UserAdminView.register(frontend)
+GroupView.register(frontend)
+GroupAdminView.register(frontend)
 EntityView.register(frontend)
 IndicatorView.register(frontend)
 ObservableView.register(frontend)
 InvestigationView.register(frontend)
 SystemView.register(frontend)
+ActionsView.register(frontend)
 
 # Admin views
 
+
 @frontend.route("/dataflows")
 def dataflows():
-    return render_template("dataflows.html", export_templates=ExportTemplate.objects.all())
+    return render_template(
+        "dataflows.html", export_templates=ExportTemplate.objects.all())
 
 
 @frontend.route("/analytics")
@@ -69,6 +77,7 @@ def analytics():
 def tags():
     return render_template("tags.html")
 
-# @frontend.route("/system")
-# def system():
-#     return render_template("system.html")
+
+@frontend.route("/system")
+def system():
+    return render_template("system.html")

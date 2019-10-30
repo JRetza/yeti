@@ -1,6 +1,6 @@
 from pythonwhois.net import get_whois_raw
 from pythonwhois.parse import parse_raw_whois
-from tldextract import extract
+from core.common.utils import tldextract_parser
 
 from core.analytics import OneShotAnalytics
 from core.observables import Email, Text
@@ -23,8 +23,9 @@ class Whois(OneShotAnalytics):
 
     default_values = {
         "name": "Whois",
-        "description": "Perform a Whois request on the domain name and tries to"
-                       " extract relevant information."
+        "description":
+            "Perform a Whois request on the domain name and tries to"
+            " extract relevant information."
     }
 
     ACTS_ON = "Hostname"
@@ -33,7 +34,7 @@ class Whois(OneShotAnalytics):
     def analyze(hostname, results):
         links = set()
 
-        parts = extract(hostname.value)
+        parts = tldextract_parser(hostname.value)
 
         if parts.subdomain == '':
             should_add_context = False
@@ -60,7 +61,10 @@ class Whois(OneShotAnalytics):
                 ]
 
                 for field, klass, description in fields_to_extract:
-                    links.update(link_from_contact_info(hostname, parsed['contacts']['registrant'], field, klass, description))
+                    links.update(
+                        link_from_contact_info(
+                            hostname, parsed['contacts']['registrant'], field,
+                            klass, description))
 
             if should_add_context:
                 hostname.add_context(context)

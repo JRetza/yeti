@@ -1,17 +1,16 @@
 import logging
-import requests
-from csv import DictReader
-from urlparse import urljoin
-from mongoengine import DictField
 from datetime import date, timedelta
+from urlparse import urljoin
 
+import requests
+from mongoengine import DictField
+
+from core.config.config import yeti_config
 from core.feed import Feed
 from core.observables import Ip, Url, Hostname, Hash, Email, Bitcoin
-from core.config.config import yeti_config
 
 
 class MispFeed(Feed):
-
     last_runs = DictField()
 
     default_values = {
@@ -47,6 +46,8 @@ class MispFeed(Feed):
                 'url': yeti_config.get(instance, 'url'),
                 'key': yeti_config.get(instance, 'key'),
                 'name': yeti_config.get(instance, 'name') or instance,
+                'galaxy_filter': yeti_config.get(instance, 'galaxy_filter'),
+                'days': yeti_config.get(instance, 'days'),
                 'organisations': {}
             }
 
@@ -59,49 +60,69 @@ class MispFeed(Feed):
         return date(*last_run)
 
     def get_organisations(self, instance):
-        url = urljoin(self.instances[instance]['url'], '/organisations/index/scope:all')
+        url = urljoin(
+            self.instances[instance]['url'], '/organisations/index/scope:all')
         headers = {
             'Authorization': self.instances[instance]['key'],
             'Content-type': 'application/json',
             'Accept': 'application/json'
         }
 
-        orgs = requests.get(url, headers=headers).json()
+        r = requests.get(
+            url, headers=headers, proxies=yeti_config.proxy)
 
-        for org in orgs:
-            org_id = org['Organisation']['id']
-            org_name = org['Organisation']['name']
-            self.instances[instance]['organisations'][org_id] = org_name
+        if r.status_code == 200:
+
+            orgs = r.json()
+
+            for org in orgs:
+                org_id = org['Organisation']['id']
+                org_name = org['Organisation']['name']
+                self.instances[instance]['organisations'][org_id] = org_name
+        else:
+            logging.error('error http %s to get instances' % r.status_code)
 
     def week_events(self, instance):
         one_week = timedelta(days=7)
-        url = urljoin(self.instances[instance]['url'], '/events/csv/download')
+        if not self.instances:
+            logging.error('not instances in MISP')
+            return
+        elif instance not in self.instances:
+            logging.error('error in instances of Misp')
+            return
+
+        url = urljoin(self.instances[instance]['url'], '/events/restSearch')
         headers = {'Authorization': self.instances[instance]['key']}
         to = date.today()
         fromdate = to - timedelta(days=6)
-        time_filter = {'request': {'ignore': True, 'includeContext': True}}
+        body = {}
 
         while True:
             imported = 0
 
-            time_filter['request']['to'] = to.isoformat()
-            time_filter['request']['from'] = fromdate.isoformat()
-            r = requests.post(url, headers=headers, json=time_filter)
+            body['to'] = to.isoformat()
+            body['from'] = fromdate.isoformat()
+            body['returnFormat'] = "json"
+            body['published'] = True
+            body['enforceWarninglist'] = True
+            r = requests.post(
+                url,
+                headers=headers,
+                json=body,
+                proxies=yeti_config.proxy)
 
-            try:
-                msg = r.json()
-                raise AttributeError(msg['message'])
-            except ValueError:
-                lines = [l for l in r.content.splitlines() if '\0' not in l]
-                csvreader = DictReader(lines)
+            if r.status_code == 200:
+                results = r.json()
 
-                for row in csvreader:
-                    self.analyze(row, instance)
+                for event in results['response']:
+                    self.analyze(event['Event'], instance)
                     imported += 1
 
                 yield fromdate, to, imported
                 to = to - one_week
                 fromdate = fromdate - one_week
+            else:
+                logging.debug(r.content)
 
     def get_last_events(self, instance):
         logging.debug("Getting last events for {}".format(instance))
@@ -109,7 +130,9 @@ class MispFeed(Feed):
         seen_last_run = False
 
         for date_from, date_to, imported in self.week_events(instance):
-            logging.debug("Imported {} attributes from {} to {}".format(imported, date_from, date_to))
+            logging.debug(
+                "Imported {} attributes from {} to {}".format(
+                    imported, date_from, date_to))
 
             if seen_last_run:
                 break
@@ -122,7 +145,9 @@ class MispFeed(Feed):
         had_results = True
 
         for date_from, date_to, imported in self.week_events(instance):
-            logging.debug("Imported {} attributes from {} to {}".format(imported, date_from, date_to))
+            logging.debug(
+                "Imported {} attributes from {} to {}".format(
+                    imported, date_from, date_to))
 
             if imported == 0:
                 if had_results:
@@ -141,27 +166,77 @@ class MispFeed(Feed):
             else:
                 self.get_all_events(instance)
 
-            self.modify(**{"set__last_runs__{}".format(instance): date.today().isoformat()})
+            self.modify(
+                **{
+                    "set__last_runs__{}".format(instance):
+                        date.today().isoformat()
+                })
 
-    def analyze(self, attribute, instance):
-        if 'type' in attribute and attribute['type'] in self.TYPES_TO_IMPORT:
-            context = {
-                'org': attribute['event_source_org'],
-                'id': attribute['event_id'],
-                'link': urljoin(self.instances[instance]['url'], '/events/{}'.format(attribute['event_id'])),
-                'date': attribute['event_date'],
-                'source': self.instances[instance]['name'],
-                'description': attribute['event_info'],
-                'comment': attribute['comment']
-            }
+    def analyze(self, event, instance):
+        tags = []
+        galaxies_to_context = []
 
-            try:
-                klass = self.TYPES_TO_IMPORT[attribute['type']]
-                obs = klass.get_or_create(value=attribute['value'])
+        context = {}
 
-                if attribute['category']:
-                    obs.tag(attribute['category'].replace(' ', '_'))
+        context['source'] = self.instances[instance]['name']
+        external_analysis = [attr['value'] for attr in
+                             event['Attribute'] if
+                             attr['category'] == 'External analysis' and attr[
+                                 'type'] == 'url' and attr["to_ids"]]
+        if external_analysis:
+            context['external sources'] = '\r\n'.join(external_analysis)
+        if 'Tag' in event:
+            if not self.instances[instance].get('galaxy_filter'):
+                tags = [tag['name'] for tag in event['Tag']]
+            else:
+                galaxies = self.instances[instance]['galaxy_filter'].split(',')
 
-                obs.add_context(context)
-            except:
-                logging.error("{}: error adding {}".format('MispFeed', attribute['value']))
+                for tag in event['Tag']:
+                    found = False
+                    if 'misp-galaxy' in tag['name']:
+                        galaxies_to_context.append(tag['name'])
+                    for g in galaxies:
+                        if g in tag['name']:
+                            found = True
+                            break
+                    if not found:
+                        tags.append(tag['name'])
+
+        for attribute in event['Attribute']:
+            if attribute['category'] == 'External analysis':
+                continue
+
+            if attribute.get('type') in self.TYPES_TO_IMPORT:
+
+                context['id'] = attribute['event_id']
+                context['link'] = urljoin(
+                    self.instances[instance]['url'],
+                    '/events/{}'.format(
+                        attribute['event_id']))
+
+                context['comment'] = attribute['comment']
+
+                try:
+
+                    klass = self.TYPES_TO_IMPORT[attribute['type']]
+                    obs = klass.get_or_create(value=attribute['value'])
+
+                    if attribute['category']:
+                        obs.tag(attribute['category'].replace(' ', '_'))
+
+                    if tags:
+                        obs.tag(tags)
+
+                    if galaxies_to_context:
+                        context['galaxies'] = '\r\n'.join(galaxies_to_context)
+                    obs.add_context(context)
+
+                except:
+
+                    try:
+                        logging.error(
+                            "{}: error adding {}".format(
+                                'MispFeed', attribute['value']))
+                    except UnicodeError:
+                        logging.error("{}: error adding {}".format(
+                            'MispFeed', attribute['id']))

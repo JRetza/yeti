@@ -52,7 +52,7 @@ function edit_context_listeners() {
     // swap controls
     panel.find(".context-edit").toggle();
     panel.find(".context-save").toggle();
-    panel.find(".context-delete").toggle();
+    panel.find(".context-delete").hide();
     panel.find(".more-context").toggle();
 
   });
@@ -61,7 +61,7 @@ function edit_context_listeners() {
 
 function add_context() {
 
-  counter = "Context" + ($("#context .context-panel").size() + 1);
+  counter = "Context" + ($("#context .context-panel").length + 1);
 
   markup = $(`<div class="panel panel-default yeti-panel context-panel">
                 <div class="panel-heading">

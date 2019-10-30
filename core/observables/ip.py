@@ -15,26 +15,24 @@ class Ip(Observable):
 
     exclude_fields = Observable.exclude_fields + ['version']
 
-    DISPLAY_FIELDS = Observable.DISPLAY_FIELDS + [("version", "IP version"), ("geoip__country", "Country"), ("geoip__city", "City")]
+    DISPLAY_FIELDS = Observable.DISPLAY_FIELDS + [("version", "IP version"),
+                                                  ("geoip__country", "Country"),
+                                                  ("geoip__city", "City")]
 
-    ignore = iptools.IpRangeList(iptools.ipv4.BENCHMARK_TESTS,
-                                 iptools.ipv4.BROADCAST,
-                                 iptools.ipv4.DUAL_STACK_LITE,
-                                 iptools.ipv4.IETF_PROTOCOL_RESERVED,
-                                 iptools.ipv4.LINK_LOCAL,
-                                 iptools.ipv4.LOOPBACK,
-                                 iptools.ipv4.LOCALHOST,
-                                 iptools.ipv4.MULTICAST,
-                                 iptools.ipv4.MULTICAST_INTERNETWORK,
-                                 iptools.ipv4.MULTICAST_LOCAL,
-                                 iptools.ipv4.PRIVATE_NETWORK_10,
-                                 iptools.ipv4.PRIVATE_NETWORK_172_16,
-                                 iptools.ipv4.PRIVATE_NETWORK_192_168)
+    ignore = iptools.IpRangeList(
+        iptools.ipv4.BENCHMARK_TESTS, iptools.ipv4.BROADCAST,
+        iptools.ipv4.DUAL_STACK_LITE, iptools.ipv4.IETF_PROTOCOL_RESERVED,
+        iptools.ipv4.LINK_LOCAL, iptools.ipv4.LOOPBACK, iptools.ipv4.LOCALHOST,
+        iptools.ipv4.MULTICAST, iptools.ipv4.MULTICAST_INTERNETWORK,
+        iptools.ipv4.MULTICAST_LOCAL, iptools.ipv4.PRIVATE_NETWORK_10,
+        iptools.ipv4.PRIVATE_NETWORK_172_16,
+        iptools.ipv4.PRIVATE_NETWORK_192_168)
 
     @classmethod
     def is_valid(cls, match):
         value = refang(match.group('search'))
-        return iptools.ipv4.validate_ip(value) or iptools.ipv6.validate_ip(value)
+        return iptools.ipv4.validate_ip(value) or iptools.ipv6.validate_ip(
+            value)
 
     def normalize(self):
         self.value = refang(self.value)
@@ -44,3 +42,23 @@ class Ip(Observable):
         elif iptools.ipv6.validate_ip(self.value):
             self.value = iptools.ipv6.long2ip(iptools.ipv6.ip2long(self.value))
             self.version = 6
+
+
+class AutonomousSystem(Observable):
+
+    """Autonomous System observable"""
+
+    as_num = IntField(verbose_name="Autonomous System number")
+
+    DISPLAY_FIELDS = Observable.DISPLAY_FIELDS + [
+        ("as_num", "Autonomous System number"),
+    ]
+
+    def info(self):
+        info = super(AutonomousSystem, self).info()
+        info['as_num'] = self.as_num,
+        return info
+
+    @staticmethod
+    def check_type(txt):
+        return True

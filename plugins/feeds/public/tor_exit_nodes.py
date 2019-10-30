@@ -1,6 +1,5 @@
-import urllib2
-from datetime import timedelta
 import logging
+from datetime import timedelta
 
 from core.feed import Feed
 from core.observables import Ip
@@ -17,18 +16,25 @@ class TorExitNodes(Feed):
     }
 
     def update(self):
-        feed = urllib2.urlopen(self.source).read()
+        feed = self._make_request().text
 
-        start = feed.find('<!-- __BEGIN_TOR_NODE_LIST__ //-->') + len('<!-- __BEGIN_TOR_NODE_LIST__ //-->')
+        start = feed.find('<!-- __BEGIN_TOR_NODE_LIST__ //-->') + len(
+            '<!-- __BEGIN_TOR_NODE_LIST__ //-->')
         end = feed.find('<!-- __END_TOR_NODE_LIST__ //-->')
 
-        feed = feed[start:end].replace('\n', '').replace('<br />', '\n').replace('&gt;', '>').replace('&lt;', '<').split('\n')
+        feed_raw = feed[start:end].replace(
+            '\n', '').replace('<br />', '\n').replace('&gt;', '>').replace(
+                '&lt;', '<')
 
+        feed = feed_raw.split('\n')
         if len(feed) > 10:
             self.status = "OK"
 
+        feed = self._temp_feed_data_compare(feed_raw)
+
         for line in feed:
             self.analyze(line)
+
         return True
 
     def analyze(self, line):
@@ -38,21 +44,22 @@ class TorExitNodes(Feed):
         if len(fields) < 8:
             return
 
-        context = {}
-        ip = fields[0]
-        context['name'] = fields[1]
-        context['router-port'] = fields[2]
-        context['directory-port'] = fields[3]
-        context['flags'] = fields[4]
-        context['version'] = fields[6]
-        context['contactinfo'] = fields[7]
+        context = {
+            'name': fields[1],
+            'router-port': fields[2],
+            'directory-port': fields[3],
+            'flags': fields[4],
+            'version': fields[6],
+            'contactinfo': fields[7],
+            'source': self.name,
+            'description': "Tor exit node: %s (%s)" % (
+                fields[1], fields[0]),
+        }
 
-        context['description'] = "Tor exit node: %s (%s)" % (context['name'], ip)
-        context['source'] = self.name
         try:
             ip = Ip.get_or_create(value=fields[0])
             ip.add_context(context)
-            ip.add_source("feed")
+            ip.add_source(self.name)
             ip.tag(['tor'])
         except ObservableValidationError as e:
             logging.error(e)

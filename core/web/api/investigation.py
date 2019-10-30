@@ -1,11 +1,14 @@
 from __future__ import unicode_literals
 
 import re
+import logging
 from datetime import datetime
 from flask import request
 from flask_classy import route
+from flask_login import current_user
 from bson.json_util import loads
 
+from mongoengine import Q
 from core.helpers import iterify
 from core import investigation
 from core.web.api.crud import CrudApi, CrudSearchApi
@@ -14,12 +17,27 @@ from core.investigation import ImportResults
 from core.entities import Entity
 from core.web.api.api import render
 from core.web.helpers import get_object_or_404
-from core.web.helpers import requires_permissions
-
+from core.web.helpers import requires_permissions, get_queryset, get_user_groups
+from core.errors import ObservableValidationError
 
 class InvestigationSearch(CrudSearchApi):
     template = 'investigation_api.html'
     objectmanager = investigation.Investigation
+
+    def search(self, query):
+        fltr = query.get('filter', {})
+        params = query.get('params', {})
+        regex = params.pop('regex', False)
+        ignorecase = params.pop('ignorecase', False)
+        page = params.pop('page', 1) - 1
+        rng = params.pop('range', 50)
+        investigations = get_queryset(self.objectmanager, fltr, regex, ignorecase, replace=False)
+        if not current_user.has_role('admin'):
+            shared_ids = [current_user.id] + [group.id for group in get_user_groups()]
+            investigations = investigations.filter(
+                Q(sharing__size=0) | Q(sharing__in=shared_ids) | Q(sharing__exists=False)
+            )
+        return list(investigations)[page * rng:(page + 1) * rng]
 
 
 class Investigation(CrudApi):
@@ -81,26 +99,73 @@ class Investigation(CrudApi):
         data = loads(request.data)
         nodes = []
 
-        response = {
-            'status': 'ok',
-            'message': ''
-        }
+        response = {'status': 'ok', 'message': ''}
 
         try:
             for node in data['nodes']:
-                if node['type'] in globals() and issubclass(globals()[node['type']], Observable):
+                if node['type'] in globals() and issubclass(
+                        globals()[node['type']], Observable):
                     _type = globals()[node['type']]
+                    try:
+                        n = _type.get_or_create(value=node['value'])
+                    except ObservableValidationError as e:
+                        logging.error((node, e))
+                        continue
 
-                n = _type.get_or_create(value=node['value'])
-                if node['new_tags']:
-                    n.tag(node['new_tags'].split(', '))
-                nodes.append(n)
+                    if node['new_tags']:
+                        n.tag(node['new_tags'].split(', '))
+                    nodes.append(n)
 
             i.add([], nodes)
         except Exception, e:
+            response = {'status': 'error', 'message': str(e)}
+
+        return render(response)
+
+    @route('/search_existence', methods=["POST"])
+    @requires_permissions('read')
+    def search_existence(self):
+        """Query investigation based on given observable, incident or entity
+
+            Query[ref]: class of the given node, which should be observable or entity
+            Query[id]: the id of the given node.
+
+        """
+        #ToDo sharing permissions
+        REF_CLASS = ('observable', 'entity')
+
+        data = loads(request.data)
+
+        if 'id' not in data or 'ref' not in data:
             response = {
                 'status': 'error',
-                'message': str(e)
+                'message': 'missing argument.'
             }
+
+        elif not ObjectId.is_valid(data['id']):
+            response = {
+                'status': 'error',
+                'message': 'given id is not valid.'
+            }
+
+        elif data['ref'] not in REF_CLASS:
+            response = {
+                'status': 'error',
+                'message': 'reference class is not valid.'
+            }
+
+        else:
+            query = {
+                'nodes': {
+                    '$elemMatch': {
+                        '$id': ObjectId(data['id']),
+                        '$ref': data['ref']
+                    }
+                },
+            }
+            response = self.objectmanager.objects(__raw__=query).order_by('-updated')
+            for inv in response:
+                if not inv.name:
+                    inv['name'] = 'Unnamed Investigation'
 
         return render(response)

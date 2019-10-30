@@ -6,7 +6,6 @@ import traceback
 
 from core.config.celeryctl import celery_app
 from core.observables import Observable
-from core.config.celeryimports import loaded_modules
 from core.analytics import ScheduledAnalytics, AnalyticsResults
 
 from mongoengine import DoesNotExist
@@ -15,7 +14,7 @@ from mongoengine import DoesNotExist
 @celery_app.task
 def each(module_name, observable_json):
     o = Observable.from_json(observable_json)
-    mod = loaded_modules[module_name]
+    mod = ScheduledAnalytics.objects.get(name=module_name)
     logging.debug("Launching {} on {}".format(mod.name, o))
     mod.each(o)
     o.analysis_done(mod.name)
@@ -25,14 +24,19 @@ def each(module_name, observable_json):
 def schedule(id):
 
     try:
-        a = ScheduledAnalytics.objects.get(id=id, lock=None)  # check if we have implemented locking mechanisms
+        a = ScheduledAnalytics.objects.get(
+            id=id, lock=None)  # check if we have implemented locking mechanisms
     except DoesNotExist:
         try:
-            ScheduledAnalytics.objects.get(id=id, lock=False).modify(lock=True)  # get object and change lock
+            ScheduledAnalytics.objects.get(
+                id=id, lock=False).modify(
+                    lock=True)  # get object and change lock
             a = ScheduledAnalytics.objects.get(id=id)
         except DoesNotExist:
             # no unlocked ScheduledAnalytics was found, notify and return...
-            logging.debug("Task {} is already running...".format(ScheduledAnalytics.objects.get(id=id).name))
+            logging.debug(
+                "Task {} is already running...".format(
+                    ScheduledAnalytics.objects.get(id=id).name))
             return
 
     if a.enabled:  # check if Analytics is enabled
@@ -58,7 +62,9 @@ def schedule(id):
 def single(results_id):
     results = AnalyticsResults.objects.get(id=results_id)
     analytics = results.analytics
-    logging.debug("Running one-shot query {} on {}".format(analytics.__class__.__name__, results.observable))
+    logging.debug(
+        "Running one-shot query {} on {}".format(
+            analytics.__class__.__name__, results.observable))
     results.update(status="running")
     try:
         links = analytics.analyze(results.observable, results)

@@ -6,23 +6,39 @@
 
 // Compile templates
 var nodeTemplate = Handlebars.compile($('#graph-sidebar-node-template').html());
+var nodesTemplate = Handlebars.compile($('#graph-sidebar-nodes-template').html());
 var linksTemplate = Handlebars.compile($('#graph-sidebar-links-template').html());
-var analyticsTemplate = Handlebars.compile($('#graph-sidebar-analytics-template').html());
 var quickAddResult = Handlebars.compile($('#graph-quick-add-result').html());
 var quickAddEmpty = Handlebars.compile($('#graph-quick-add-empty').html());
+var tagsTemplate = Handlebars.compile($('#graph-sidebar-tags').html());
+var noSelectionTemplate = Handlebars.compile($('#graph-sidebar-no-selection').html());
+var analyticsGroupTemplate = Handlebars.compile($('#graph-sidebar-analytics-group-template').html());
+var analyticsPanelTemplate = Handlebars.compile($('#graph-sidebar-analytics-panel').html());
+var relatedGraphTemplate = Handlebars.compile($('#graph-sidebar-related-investigation-template').html())
 
 Handlebars.registerPartial("links", linksTemplate);
+Handlebars.registerPartial("tags", tagsTemplate);
+Handlebars.registerPartial("analyticsPanel", analyticsPanelTemplate);
+Handlebars.registerPartial("analyticsGroup", analyticsGroupTemplate);
+var analyticsTemplate = Handlebars.compile($('#graph-sidebar-analytics-template').html());
 var analyticsResultsTemplate = Handlebars.compile($('#graph-sidebar-analytics-results-template').html());
 
 // Define default icons
 var icons = {
   'Observable.Ip': flaticon('\ue005'),
+  'Observable.AutonomousSystem': flaticon('\ue00b'),
+  'Observable.MacAddress': flaticon('\ue005'),
+  'Observable.Certificate': flaticon('\ue024'),
+  'Observable.CertificateSubject': flaticon('\ue024'),
   'Observable.Hostname': flaticon('\ue01E'),
   'Observable.Url': flaticon('\ue013'),
   'Observable.Email': flaticon('\ue01A'),
   'Observable.Text': flaticon('\ue022'),
   'Observable.File': flaticon('\ue021'),
   'Observable.Hash': flaticon('\ue00e'),
+  'Observable.Path': flaticon('\ue00a'),
+  'Observable.Bitcoin': flaticon('\ue026'),
+
   'Entity.Malware': flaticon('\ue001'),
   'Entity.TTP': flaticon('\ue019'),
   'Entity.Company': flaticon('\ue002'),
@@ -33,12 +49,18 @@ var icons = {
 
 var cssicons = {
   'Observable.Ip': 'flaticon-computer189',
+  'Observable.AutonomousSystem': 'flaticon-earth213',
+  'Observable.MacAddress': 'flaticon-computer189',
+  'Observable.Certificate': 'flaticon-website17',
+  'Observable.CertificateSubject': 'flaticon-website17',
   'Observable.Hostname': 'flaticon-server20',
   'Observable.Url': 'flaticon-links11',
   'Observable.Email': 'flaticon-message99',
   'Observable.Text': 'flaticon-typography2',
   'Observable.File': 'flaticon-text70',
   'Observable.Hash': 'flaticon-finger14',
+  'Observable.Path': 'flaticon-document238',
+  'Observable.Bitcoin': 'flaticon-bitcoin',
   'Entity.Malware': 'flaticon-bug24',
   'Entity.TTP': 'flaticon-maths5',
   'Entity.Company': 'flaticon-building259',
@@ -53,7 +75,7 @@ var cssicons = {
 
 function flaticon(code) {
   return {
-    face: 'Flaticon',
+    face: 'yetiicons',
     code: code,
     size: 40,
     color: '#495B6C',
@@ -155,6 +177,13 @@ class Investigation {
         }
       }
     });
+
+    // Create actions
+    this.manageTags = new ManageTags('#action-managetags-template');
+    this.manageTags.on('tags.added', this.addedTags.bind(this));
+    this.manageTags.on('tags.removed', this.removedTags.bind(this));
+
+    this.export = new Export('#action-export-template');
 
     // Setup initial data
     this.update(investigation);
@@ -398,7 +427,7 @@ class Investigation {
 
       if (!node.fetched) {
         linksPromises.push($.getJSON('/api/neighbors/' + node._cls + '/' + node._id));
-        self.retrieveAnalyticsResults(node);
+        self.retrieveAnalyticsResults([node]);
       }
     });
 
@@ -486,56 +515,93 @@ class Investigation {
     enablePopovers();
   }
 
-  availableAnalyticsFor(node) {
-    var nodeType = node._cls.split('.');
-    nodeType = nodeType[nodeType.length - 1];
+  availableAnalyticsFor(nodes) {
+    var self = this;
+    var results = {};
 
-    return this.analytics.get({
-      filter: function(item) {
-        return $.inArray(nodeType, item.acts_on) != -1;
-      },
+    nodes.forEach(function (node) {
+      var nodeType = node._cls.split('.');
+      nodeType = nodeType[nodeType.length - 1];
+
+      self.analytics.get({
+        filter: function(item) {
+          return $.inArray(nodeType, item.acts_on) != -1;
+        },
+      }).forEach(function (analytics) {
+        if (!(analytics.group in results)) {
+          results[analytics.group] = {};
+        }
+        if (!(analytics.id in results[analytics.group]))
+        {
+          results[analytics.group][analytics.id] = {
+            analytics: analytics,
+            nodes: [node],
+            nodeIds: [node._id]
+          };
+        }
+        else {
+          results[analytics.group][analytics.id].nodes.push(node);
+          results[analytics.group][analytics.id].nodeIds.push(node._id);
+        }
+      });
+    });
+
+    return results;
+  }
+
+  forEachAnalytics(groupedAnalytics, cb) {
+    function eachAnalytics(group, id) {
+      cb(groupedAnalytics[group][id]);
+    }
+
+    for (var group in groupedAnalytics) {
+      var cb2 = eachAnalytics.bind(null, group);
+      Object.keys(groupedAnalytics[group]).forEach(cb2);
+    }
+  }
+
+  displayAnalytics(nodes) {
+    var availableAnalytics = this.availableAnalyticsFor(nodes);
+    $('#graph-sidebar-analytics').html(analyticsTemplate({groups: availableAnalytics}));
+  }
+
+  displayAnalyticsResultsForNodes(nodes) {
+    var self = this;
+    var availableAnalytics = this.availableAnalyticsFor(nodes);
+
+    self.forEachAnalytics(availableAnalytics, function (analytics) {
+      analytics.nodes.forEach(function (node) {
+        var resultsDiv = $('#analytics-' + analytics.analytics.id + '-' + node._id);
+        var data;
+
+        if (analytics.analytics.id in node.analytics)
+          data = node.analytics[analytics.analytics.id];
+
+        self.displayAnalyticsResults(data, resultsDiv);
+      });
     });
   }
 
-  displayAnalytics(node) {
-    var availableAnalytics = this.availableAnalyticsFor(node);
-    $('#graph-sidebar-analytics-' + node.id).html(analyticsTemplate({analytics: availableAnalytics, nodeId: node._id}));
-  }
-
-  displayAnalyticsResultsForNode(node) {
+  retrieveAnalyticsResults(nodes) {
     var self = this;
-    var availableAnalytics = this.availableAnalyticsFor(node);
-    availableAnalytics.forEach(function (analytics) {
-      var analyticsDiv = $('#analytics-' + analytics.id + '-' + node._id);
-      var data;
+    var availableAnalytics = this.availableAnalyticsFor(nodes);
 
-      if (analytics.id in node.analytics)
-        data = node.analytics[analytics.id];
-
-      var resultsDiv = analyticsDiv.find('.graph-sidebar-analytics-results');
-      self.displayAnalyticsResults(data, resultsDiv, analytics.id);
-    });
-  }
-
-  retrieveAnalyticsResults(node) {
-    var self = this;
-    var availableAnalytics = this.availableAnalyticsFor(node);
-
-    availableAnalytics.forEach(function (analytics) {
-      function callback(data) {
-        var analyticsDiv = $('#analytics-' + analytics.id + '-' + node._id);
+    self.forEachAnalytics(availableAnalytics, function (analytics) {
+      function callback(node, data) {
+        var resultsDiv = $('#analytics-' + analytics.analytics.id + '-' + node._id);
 
         if (data) {
             data = self.saveAnalyticsResults(data);
         }
 
-        if (analyticsDiv.length) {
-          var resultsDiv = analyticsDiv.find('.graph-sidebar-analytics-results');
-          self.displayAnalyticsResults(data, resultsDiv, analytics.id);
+        if (resultsDiv.length) {
+          self.displayAnalyticsResults(data, resultsDiv);
         }
       }
 
-      $.getJSON('/api/analytics/oneshot/' + analytics.id + '/last/' + node._id).done(callback);
+      analytics.nodes.forEach(function (node) {
+        $.getJSON('/api/analytics/oneshot/' + analytics.analytics.id + '/last/' + node._id).done(callback.bind(null, node));
+      });
     });
   }
 
@@ -555,26 +621,124 @@ class Investigation {
     $.getJSON('/api/neighbors/' + node._cls + '/' + node._id, this.retrieveNodeNeighborsCallback(node.id));
   }
 
+  changeSelection(params) {
+    var self = this;
+    var selectedNodes = params.nodes;
+
+    if (selectedNodes.length == 1) {
+      this.selectNode(selectedNodes[0]);
+    } else if (selectedNodes.length === 0) {
+      $('#graph-sidebar-dynamic').html(noSelectionTemplate({}));
+    } else {
+      this.selectMultipleNodes(selectedNodes);
+    }
+  }
+
+  selectMultipleNodes(nodeIds) {
+    var self = this;
+    var nodes = [];
+
+    // Get information for each selected node
+    nodeIds.forEach(function (nodeId) {
+      nodes.push(self.nodes.get(nodeId));
+    });
+
+    // Update sidebar with multi-selection content
+    $('#graph-sidebar-dynamic').html(nodesTemplate(nodes));
+
+    // Update actions
+    self.manageTags.changeSelection(nodeIds);
+    self.manageTags.displayIn('#accordion');
+
+    self.export.changeSelection(nodeIds);
+    self.export.displayIn('#accordion');
+
+    // Display analytics
+    self.displayAnalytics(nodes);
+
+    // Fetch nodes / display analytics results
+    var unfetched = [];
+    var fetched = [];
+    nodes.forEach(function (node) {
+      if (node.fetched) {
+        fetched.push(node);
+      } else {
+        self.retrieveNodeNeighbors(node);
+        unfetched.push(node);
+      }
+    });
+    self.displayAnalyticsResultsForNodes(fetched);
+    self.retrieveAnalyticsResults(unfetched);
+  }
+
+  fetchRelatedInv(id, ref) {
+      const url = '/api/investigation/search_existence';
+      const headers = new Headers();
+      headers.append('Accept', 'application/json');
+      headers.append('Content-Type', 'application/json');
+
+      const body = JSON.stringify({
+        id,
+        ref,
+      });
+      const init = {
+        method: 'POST',
+        headers,
+        body,
+      };
+      return fetch(url, init);
+    }
+
+  updateRelatedGraph(nodeId) {
+      var self = this;
+
+      const [ref, id] = nodeId.split('-');
+      const fetchRelatedInv = this.fetchRelatedInv(id, ref);
+      fetchRelatedInv
+        .then((res) => {
+          return res.json();
+        })
+        .then((results) => {
+          const params = {
+            investigations: results.filter(investigation => investigation._id != self.id),
+          };
+          $('#graph-sidebar-related-investigation').html(relatedGraphTemplate(params));
+        })
+        .catch((err) => {
+          if (err) console.error(err);
+        });
+    }
+
   selectNode(nodeId) {
     var node = this.nodes.get(nodeId);
 
     // Update sidebar with content related to this node
     $('#graph-sidebar-dynamic').html(nodeTemplate(node));
 
+    // Fetch related investigations
+    this.updateRelatedGraph(nodeId);
+
     // Enable HighlightJS
     hljs.initHighlighting.called = false;
     hljs.initHighlighting();
 
+    // Update actions
+    this.manageTags.selectOne(nodeId);
+    this.manageTags.displayIn('#accordion');
+
+    this.export.selectOne(nodeId);
+    this.export.displayIn('#accordion');
+
     // Display analytics
-    this.displayAnalytics(node);
+    this.displayAnalytics([node]);
 
     // Display links
     if (node.fetched) {
       this.displayLinks(nodeId);
-      this.displayAnalyticsResultsForNode(node);
+      this.displayAnalyticsResultsForNodes([node]);
     } else {
       this.retrieveNodeNeighbors(node);
-      this.retrieveAnalyticsResults(node);
+      this.retrieveAnalyticsResults([node]);
     }
   }
 
@@ -601,9 +765,19 @@ class Investigation {
     });
   }
 
-  displayAnalyticsResults(data, resultsDiv, analyticsId) {
-    resultsDiv.html(analyticsResultsTemplate({results: data, analytics: analyticsId}));
-    enablePopovers();
+  displayAnalyticsResults(data, resultsDiv) {
+    var self = this;
+
+    resultsDiv.find('.fa-spinner').addClass('hide');
+    if (data) {
+      resultsDiv.find('.analytics-results').html(analyticsResultsTemplate(data));
+      enablePopovers();
+      resultsDiv.find('.glyphicon-refresh').removeClass('hide');
+      resultsDiv.closest('.graph-sidebar-analytics').find('.graph-sidebar-show-results').removeClass('hide');
+    } else {
+      resultsDiv.find('.glyphicon-play').removeClass('hide');
+    }
+    self.updateAnalyticsLinks(resultsDiv);
 
     // Enable HighlightJS on raw results
     hljs.initHighlighting.called = false;
@@ -640,17 +814,19 @@ class Investigation {
     var self = this;
 
     function callback(data) {
-      var analyticsDiv = $('#analytics-' + data.analytics + '-' + data.observable);
-      var resultsDiv = analyticsDiv.find('.graph-sidebar-analytics-results');
+      var analyticsDiv = $('#graph-sidebar-analytics-' + id);
+      var resultsDiv = $('#analytics-' + data.analytics + '-' + data.observable);
       var button = analyticsDiv.find('.graph-sidebar-run-analytics');
 
       if (data.status == 'finished') {
         data = self.saveAnalyticsResults(data, resultsDiv);
-        self.displayAnalyticsResults(data, resultsDiv, data.analytics);
-        button.removeClass('glyphicon-spinner');
+        self.displayAnalyticsResults(data, resultsDiv);
+        button.find('.glyphicon-play').addClass('hide');
+        button.find('.fa-spinner').removeClass('hide');
       } else if (data.status == 'error') {
-        self.displayAnalyticsResults(data, resultsDiv, data.analytics);
-        button.removeClass('glyphicon-spinner');
+        self.displayAnalyticsResults(data, resultsDiv);
+        button.find('.glyphicon-play').addClass('hide');
+        button.find('.fa-spinner').removeClass('hide');
       } else {
         setTimeout(self.fetchAnalyticsResults.bind(self, id), 1000);
       }
@@ -667,6 +843,7 @@ class Investigation {
   runAnalytics(id, nodeId) {
     var self = this;
 
+    // Run the analytics
     function runCallback(data) {
       var resultsId = data._id;
 
@@ -679,6 +856,33 @@ class Investigation {
       runCallback,
       'json'
     );
+
+    // Give proper feedback
+    var link = $('#analytics-' + id + '-' + nodeId);
+    link.find('.glyphicon-play').addClass('hide');
+    link.find('.glyphicon-refresh').addClass('hide');
+    link.find('.fa-spinner').removeClass('hide');
+
+    self.updateAnalyticsLinks(link);
+  }
+
+  updateAnalyticsLinks(resultsDiv) {
+    var parent = resultsDiv.parents('.graph-sidebar-analytics');
+    var parentLinks = parent.children('.graph-sidebar-links');
+    var subresults = parent.find('.analytics-results-slider');
+
+    parentLinks.find('.glyphicon-play').addClass('hide');
+    parentLinks.find('.glyphicon-refresh').addClass('hide');
+    parentLinks.find('.fa-spinner').addClass('hide');
+
+    if (subresults.find('.fa-spinner:not(.hide)').length) {
+      parentLinks.find('.fa-spinner').removeClass('hide');
+    } else if (subresults.find('.glyphicon-play:not(.hide)').length) {
+      parentLinks.find('.glyphicon-play').removeClass('hide');
+    } else {
+      parentLinks.find('.glyphicon-refresh').removeClass('hide');
+    }
+
   }
 
   add(links, nodes) {
@@ -773,6 +977,9 @@ class Investigation {
       manipulation: {
         enabled: false,
         addEdge: self.addManualLink.bind(self)
+      },
+      interaction: {
+        multiselect: true,
       }
     };
 
@@ -791,9 +998,67 @@ class Investigation {
 
     self.network = new vis.Network(container, data, options);
 
-    self.network.on('selectNode', function(params) {
-      self.selectNode(params.nodes[params.nodes.length - 1]);
+    self.network.on('select', function(params) {
+      self.changeSelection(params);
     });
+  }
+
+  addedTags(data) {
+    var self = this;
+
+    data.selection.forEach(function (nodeId) {
+      if (nodeId.startsWith('observable-')) {
+        var alreadyIn = [];
+        var node = self.nodes.get(nodeId);
+
+        node.tags.forEach(function (tag) {
+          if (data.tags.includes(tag.name)) {
+            alreadyIn.push(tag.name);
+          }
+        });
+
+        data.tags.forEach(function (tag) {
+          if (!alreadyIn.includes(tag)) {
+            node.tags.push({'name': tag});
+          }
+        });
+
+        self.nodes.update(node);
+        $('#graph-sidebar-taglist-' + nodeId).html(tagsTemplate(node));
+      }
+    });
+  }
+
+  removedTags(data) {
+    var self = this;
+
+    data.selection.forEach(function (nodeId) {
+      if (nodeId.startsWith('observable-')) {
+        var newTags = [];
+        var node = self.nodes.get(nodeId);
+
+        node.tags.forEach(function (tag) {
+          if (!data.tags.includes(tag.name)) {
+            newTags.push(tag);
+          }
+        });
+
+        node.tags = newTags;
+        self.nodes.update(node);
+        $('#graph-sidebar-taglist-' + nodeId).html(tagsTemplate(node));
+      }
+    });
+  }
+
+  selectAllNodes() {
+    var self = this;
+
+    var nodeIds = self.nodes.getIds({filter: function(item) {
+      return item.visible;
+    }});
+
+    self.network.selectNodes(nodeIds);
+    self.changeSelection({'nodes': nodeIds});
   }
 
   initGraph() {
@@ -806,6 +1071,11 @@ class Investigation {
     var self = this;
 
     // Define event handlers
+    $('#graph-sidebar').on('click', '#graph-select-all', function(e) {
+      e.preventDefault();
+      self.selectAllNodes();
+    });
+
     $('#graph-sidebar').on('click', '.graph-sidebar-display-link', function(e) {
       var linkId = $(this).data('link');
       var link = self.edges.get(linkId);
@@ -831,17 +1101,29 @@ class Investigation {
     });
 
     $('#graph-sidebar').on('click', '.graph-sidebar-run-analytics', function(e) {
-      var button = $(this);
+      var link = $(this);
+      var id = link.data('id');
+      var nodeIds = link.data('node-id').split(',');
 
-      var id = button.data('id');
-      var nodeId = button.parents('#graph-sidebar-content').data('id');
-      nodeId = nodeId.split('-');
-      nodeId = nodeId[nodeId.length - 1];
-      // var resultsDiv = button.parent().prev();
+      nodeIds.forEach(function (nodeId) {
+        self.runAnalytics(id, nodeId);
+      });
+    });
 
-      button.addClass('glyphicon-spinner');
+    $('#graph-sidebar').on('click', '.graph-sidebar-show-results', function(e) {
+      var resultsDiv = $(this).parents('.graph-sidebar-analytics').find('.analytics-results-slider');
+      resultsDiv.removeClass('no-overflow');
+      resultsDiv.addClass('slide-right');
+    });
 
-      self.runAnalytics(id, nodeId);
+    $('#graph-sidebar').on('click', '.analytics-results-close', function(e) {
+      var resultsDiv =
+      $(this).parents('.analytics-results-slider');
+
+      resultsDiv.removeClass('slide-right');
+      setTimeout(function() {
+        resultsDiv.addClass('no-overflow');
+      }, 210);
     });
 
     // Allow sidebar to be resized
@@ -873,6 +1155,31 @@ class Investigation {
       $('#graph-sidebar-investigation-name span').text(self.name);
     }
 
+    function validateNameChange(e) {
+      e.preventDefault();
+      var nameElement = $('#graph-sidebar-investigation-name span');
+      var input = $('#graph-sidebar-investigation-name input');
+
+      var newName = input.val();
+
+      $.ajax({
+        type: 'POST',
+        url: '/api/investigation/rename/' + self.id,
+        data: JSON.stringify({name: newName}),
+        dataType: 'json',
+        contentType: 'application/json',
+      }).fail(function (d) {
+        notify('Could not save new name.', 'danger');
+      });
+
+      input.addClass('hidden');
+      nameElement.text(newName);
+      nameElement.removeClass('hidden unsaved');
+    }
+
+    $('#graph-sidebar-investigation-name form').submit(validateNameChange);
+    $('#graph-sidebar-investigation-name input').focusout(validateNameChange);
+
     $('#graph-sidebar-investigation-name a').on('click', function(e) {
       e.preventDefault();
 
@@ -889,29 +1196,6 @@ class Investigation {
       nameElement.addClass('hidden');
       input.removeClass('hidden');
       input.focus();
-
-      function validateNameChange(e) {
-        e.preventDefault();
-
-        var newName = input.val();
-
-        $.ajax({
-          type: 'POST',
-          url: '/api/investigation/rename/' + self.id,
-          data: JSON.stringify({name: newName}),
-          dataType: 'json',
-          contentType: 'application/json',
-        }).fail(function (d) {
-          notify('Could not save new name.', 'danger');
-        });
-
-        input.addClass('hidden');
-        nameElement.text(newName);
-        nameElement.removeClass('hidden unsaved');
-      }
-
-      form.on('submit', validateNameChange);
-      input.focusout(validateNameChange);
     });
 
     // Quick Add

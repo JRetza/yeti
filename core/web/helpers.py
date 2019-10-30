@@ -11,31 +11,42 @@ from flask import abort, request
 from flask_login import current_user
 from mongoengine import Q
 
+from core.group import Group
+
 SEARCH_REPLACE = {
     'tags': 'tags__name',
 }
 
 
 def requires_permissions(permissions, object_name=None):
+
     def wrapper(f):
+
         @wraps(f)
         def inner(*args, **kwargs):
             oname = object_name
             if not oname:
-                oname = getattr(args[0], 'klass', getattr(args[0], 'objectmanager', args[0].__class__)).__name__.lower()
-            # a user must have all permissions in order to be granted access
-            for p in iterify(permissions):
-                if not current_user.has_permission(oname, p):
-                    # improve this and make it redirect to login
-                    abort(401)
-            else:
-                return f(*args, **kwargs)
+                oname = getattr(
+                    args[0], 'klass',
+                    getattr(args[0], 'objectmanager',
+                            args[0].__class__)).__name__.lower()
+            if not current_user.has_role('admin'):
+                # a user must have all permissions in order to be granted access
+                for p in iterify(permissions):
+                    if not current_user.has_permission(oname, p):
+                        # improve this and make it redirect to login
+                        abort(401)
+            return f(*args, **kwargs)
+
         return inner
+
     return wrapper
 
 
 def requires_role(*roles):
+
     def wrapper(f):
+
         @wraps(f)
         def inner(*args, **kwargs):
             # a user needs at least one of the roles to be granted access
@@ -44,7 +55,9 @@ def requires_role(*roles):
                     return f(*args, **kwargs)
             else:
                 abort(401)
+
         return inner
+
     return wrapper
 
 
@@ -63,7 +76,7 @@ def find_method(instance, method_name, argument_name):
     abort(404)
 
 
-def get_queryset(collection, filters, regex, ignorecase):
+def get_queryset(collection, filters, regex, ignorecase, replace=True):
     result_filters = dict()
 
     queryset = collection.objects
@@ -72,8 +85,9 @@ def get_queryset(collection, filters, regex, ignorecase):
 
     for key, value in filters.items():
         key = key.replace(".", "__")
-        if key in SEARCH_REPLACE:
-            key = SEARCH_REPLACE[key]
+        if replace:
+            if key in SEARCH_REPLACE:
+                key = SEARCH_REPLACE[key]
 
         if regex and isinstance(value, basestring):
             flags = 0
@@ -89,7 +103,11 @@ def get_queryset(collection, filters, regex, ignorecase):
     q = Q()
     for alias in collection.SEARCH_ALIASES:
         if alias in filters:
-            q &= Q(**{collection.SEARCH_ALIASES[alias]: result_filters[alias]}) | Q(**{alias: result_filters[alias]})
+            q &= Q(**{
+                collection.SEARCH_ALIASES[alias]: result_filters[alias]
+            }) | Q(**{
+                alias: result_filters[alias]
+            })
             result_filters.pop(alias)
 
     print "Filter: {}".format(result_filters), q.to_query(collection)
@@ -115,9 +133,37 @@ def csrf_protect():
 
 
 def prevent_csrf(func):
+
     @wraps(func)
     def inner(*args, **kwargs):
         csrf_protect()
         return func(*args, **kwargs)
 
     return inner
+
+
+def get_user_groups():
+    if current_user.has_role('admin'):
+        groups = Group.objects()
+    else:
+        groups = Group.objects(members__in=[current_user.id])
+
+    return groups
+
+def group_user_permission(investigation=False):
+    """
+        This aux func aimed to simplify check if user is admin or in group with perms
+    """
+    if current_user.has_role('admin'):
+        return True
+
+    elif investigation and hasattr(investigation, "sharing"):
+
+        # means its public
+        if investigation.sharing == []:
+            return True
+
+        groups = get_user_groups()
+        return any([group.id in investigation.sharing for group in groups]) or current_user.id in investigation.sharing
+
+    return False

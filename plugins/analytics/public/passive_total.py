@@ -1,42 +1,36 @@
 import requests
 from datetime import datetime
 
-from core.helpers import get_value_at
 from core.analytics import OneShotAnalytics
 from core.observables import Observable, Hostname, Hash, Email, Text
+from core.config.config import yeti_config
 
 
 def whois_links(observable, whois):
     links = set()
 
-    to_extract = [
-        {
-            "field": "organization",
-            "type": Text,
-            "label": "Registrant Organization",
-        },
-        {
-            "field": "registrar",
-            "type": Text,
-            "label": "Registrar",
-        },
-        {
-            "field": "contactEmail",
-            "type": Email,
-            "label": "Registrant Email",
-        },
-        {
-            "field": "name",
-            "type": Text,
-            "label": "Registrant Name",
-        },
-        {
-            "field": "telephone",
-            "type": Text,
-            "label": "Registrant Phone",
-            "record_type": "phone"
-        }
-    ]
+    to_extract = [{
+        "field": "organization",
+        "type": Text,
+        "label": "Registrant Organization",
+    }, {
+        "field": "registrar",
+        "type": Text,
+        "label": "Registrar",
+    }, {
+        "field": "contactEmail",
+        "type": Email,
+        "label": "Registrant Email",
+    }, {
+        "field": "name",
+        "type": Text,
+        "label": "Registrant Name",
+    }, {
+        "field": "telephone",
+        "type": Text,
+        "label": "Registrant Phone",
+        "record_type": "phone"
+    }]
 
     for field in to_extract:
         if field['field'] in whois and whois[field['field']] != 'N/A':
@@ -47,7 +41,8 @@ def whois_links(observable, whois):
                 else:
                     node.update(record_type=field['field'])
 
-            links.update(observable.active_link_to(node, field['label'], 'PassiveTotal'))
+            links.update(
+                observable.active_link_to(node, field['label'], 'PassiveTotal'))
 
     if 'nameServers' in whois:
         nameservers = []
@@ -59,7 +54,9 @@ def whois_links(observable, whois):
                     print e
 
         if nameservers:
-            links.update(observable.active_link_to(nameservers, "NS record", 'PassiveTotal'))
+            links.update(
+                observable.active_link_to(
+                    nameservers, "NS record", 'PassiveTotal'))
 
     return list(links)
 
@@ -81,9 +78,12 @@ class PassiveTotalApi(object):
     @staticmethod
     def get(uri, settings, params={}):
         url = PassiveTotalApi.API_URL + uri
-        auth = (settings['passivetotal_api_username'], settings['passivetotal_api_key'])
+        auth = (
+            settings['passivetotal_api_username'],
+            settings['passivetotal_api_key'])
 
-        response = requests.get(url, auth=auth, params=params)
+        response = requests.get(
+            url, auth=auth, params=params, proxies=yeti_config.proxy)
         response.raise_for_status()
 
         return response.json()
@@ -92,8 +92,12 @@ class PassiveTotalApi(object):
 class PassiveTotalPassiveDNS(OneShotAnalytics, PassiveTotalApi):
 
     default_values = {
-        "name": "PassiveTotal Passive DNS",
-        "description": "Perform passive DNS (reverse) lookups on domain names or IP addresses."
+        "group":
+            "PassiveTotal",
+        "name":
+            "PassiveTotal Passive DNS",
+        "description":
+            "Perform passive DNS (reverse) lookups on domain names or IP addresses."
     }
 
     ACTS_ON = ["Hostname", "Ip"]
@@ -102,21 +106,27 @@ class PassiveTotalPassiveDNS(OneShotAnalytics, PassiveTotalApi):
     def analyze(observable, results):
         links = set()
 
-        params = {
-            'query': observable.value
-        }
+        params = {'query': observable.value}
 
         data = PassiveTotalApi.get('/dns/passive', results.settings, params)
 
         for record in data['results']:
-            first_seen = datetime.strptime(record['firstSeen'], "%Y-%m-%d %H:%M:%S")
-            last_seen = datetime.strptime(record['lastSeen'], "%Y-%m-%d %H:%M:%S")
+            first_seen = datetime.strptime(
+                record['firstSeen'], "%Y-%m-%d %H:%M:%S")
+            last_seen = datetime.strptime(
+                record['lastSeen'], "%Y-%m-%d %H:%M:%S")
 
             new = Observable.add_text(record['resolve'])
             if isinstance(observable, Hostname):
-                links.update(observable.link_to(new, "{} record".format(record['recordType']), 'PassiveTotal', first_seen, last_seen))
+                links.update(
+                    observable.link_to(
+                        new, "{} record".format(record['recordType']),
+                        'PassiveTotal', first_seen, last_seen))
             else:
-                links.update(new.link_to(observable, "{} record".format(record['recordType']), 'PassiveTotal', first_seen, last_seen))
+                links.update(
+                    new.link_to(
+                        observable, "{} record".format(record['recordType']),
+                        'PassiveTotal', first_seen, last_seen))
 
         return list(links)
 
@@ -124,7 +134,8 @@ class PassiveTotalPassiveDNS(OneShotAnalytics, PassiveTotalApi):
 class PassiveTotalMalware(OneShotAnalytics, PassiveTotalApi):
 
     default_values = {
-        "name": "PassiveTotal Get Malware",
+        "group": "PassiveTotal",
+        "name": "Get Malware",
         "description": "Find malware related to domain names or IP addresses."
     }
 
@@ -134,17 +145,20 @@ class PassiveTotalMalware(OneShotAnalytics, PassiveTotalApi):
     def analyze(observable, results):
         links = set()
 
-        params = {
-            'query': observable.value
-        }
+        params = {'query': observable.value}
 
-        data = PassiveTotalApi.get('/enrichment/malware', results.settings, params)
+        data = PassiveTotalApi.get(
+            '/enrichment/malware', results.settings, params)
 
         for record in data['results']:
-            collection_date = datetime.strptime(record['collectionDate'], "%Y-%m-%d %H:%M:%S")
+            collection_date = datetime.strptime(
+                record['collectionDate'], "%Y-%m-%d %H:%M:%S")
 
             malware = Hash.get_or_create(value=record['sample'])
-            links.update(malware.link_to(observable, "Contacted Host", record['source'], collection_date))
+            links.update(
+                malware.link_to(
+                    observable, "Contacted Host", record['source'],
+                    collection_date))
 
         return list(links)
 
@@ -152,7 +166,8 @@ class PassiveTotalMalware(OneShotAnalytics, PassiveTotalApi):
 class PassiveTotalSubdomains(OneShotAnalytics, PassiveTotalApi):
 
     default_values = {
-        "name": "PassiveTotal Get Subdomains",
+        "group": "PassiveTotal",
+        "name": "Get Subdomains",
         "description": "Find all known subdomains."
     }
 
@@ -162,21 +177,24 @@ class PassiveTotalSubdomains(OneShotAnalytics, PassiveTotalApi):
     def analyze(observable, results):
         links = set()
 
-        params = {
-            'query': '*.{}'.format(observable.value)
-        }
+        params = {'query': '*.{}'.format(observable.value)}
 
-        data = PassiveTotalApi.get('/enrichment/subdomains', results.settings, params)
+        data = PassiveTotalApi.get(
+            '/enrichment/subdomains', results.settings, params)
 
         for record in data['subdomains']:
-            subdomain = Hostname.get_or_create(value='{}.{}'.format(record, observable.value))
-            links.update(observable.active_link_to(subdomain, "Subdomain", 'PassiveTotal'))
+            subdomain = Hostname.get_or_create(
+                value='{}.{}'.format(record, observable.value))
+            links.update(
+                observable.active_link_to(
+                    subdomain, "Subdomain", 'PassiveTotal'))
 
         return list(links)
 
 
 class PassiveTotalWhois(OneShotAnalytics, PassiveTotalApi):
     default_values = {
+        "group": "PassiveTotal",
         "name": "PassiveTotal Whois",
         "description": "Get Whois information for a specific domain name."
     }
@@ -191,10 +209,7 @@ class PassiveTotalWhois(OneShotAnalytics, PassiveTotalApi):
 
         data = PassiveTotalApi.get('/whois', results.settings, params)
 
-        context = {
-            'source': 'PassiveTotal Whois',
-            'raw': data
-        }
+        context = {'source': 'PassiveTotal Whois', 'raw': data}
         observable.add_context(context)
 
         return whois_links(observable, data)
@@ -203,8 +218,9 @@ class PassiveTotalWhois(OneShotAnalytics, PassiveTotalApi):
 class PassiveTotalReverseWhois(OneShotAnalytics, PassiveTotalApi):
 
     default_values = {
+        "group": "PassiveTotal",
         "name": "PassiveTotal Reverse Whois",
-        "description": "Find all known domain names for a specific Whois field."
+        "description": "Find all known domain names for a specific whois field."
     }
 
     ACTS_ON = ["Email", "Text"]
@@ -220,10 +236,7 @@ class PassiveTotalReverseWhois(OneShotAnalytics, PassiveTotalApi):
         else:
             raise ValueError("Could not determine field for this observable")
 
-        params = {
-            'query': observable.value,
-            'field': field
-        }
+        params = {'query': observable.value, 'field': field}
 
         data = PassiveTotalApi.get('/whois/search', results.settings, params)
 
@@ -237,8 +250,9 @@ class PassiveTotalReverseWhois(OneShotAnalytics, PassiveTotalApi):
 class PassiveTotalReverseNS(OneShotAnalytics, PassiveTotalApi):
 
     default_values = {
+        "group": "PassiveTotal",
         "name": "PassiveTotal Reverse NS",
-        "description": "Find all known domain names for a specific NS server (from Whois data)"
+        "description": "Find all known domain names for a specific NS server."
     }
 
     ACTS_ON = ["Hostname"]
@@ -247,10 +261,7 @@ class PassiveTotalReverseNS(OneShotAnalytics, PassiveTotalApi):
     def analyze(observable, results):
         links = set()
 
-        params = {
-            'query': observable.value,
-            'field': 'nameserver'
-        }
+        params = {'query': observable.value, 'field': 'nameserver'}
 
         data = PassiveTotalApi.get('/whois/search', results.settings, params)
 

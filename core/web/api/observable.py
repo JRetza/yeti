@@ -1,5 +1,7 @@
 from __future__ import unicode_literals
 
+import logging
+
 from flask_classy import route
 from flask import request, abort
 from flask_login import current_user
@@ -10,6 +12,7 @@ from core.web.api.api import render
 from core.web.helpers import get_object_or_404
 from core.helpers import refang
 from core.web.helpers import requires_permissions
+from core.errors import GenericYetiError, ObservableValidationError
 
 
 class Observable(CrudApi):
@@ -48,10 +51,16 @@ class Observable(CrudApi):
         if 'id' in params:
             obs = self.objectmanager.objects.get(id=params.pop("id"))
         else:
-            if params.pop('refang', None):
-                obs = self.objectmanager.add_text(refang(params.pop('value')))
-            else:
-                obs = self.objectmanager.add_text(params.pop('value'))
+            forced_type = params.pop('force_type', None)
+            try:
+                if params.pop('refang', None):
+                    obs = self.objectmanager.add_text(refang(params.pop('value')), force_type=forced_type)
+                else:
+                    obs = self.objectmanager.add_text(params.pop('value'), force_type=forced_type)
+            except (GenericYetiError, ObservableValidationError) as e:
+                logging.error(e)
+                abort(400)
+
         return render(self._modify_observable(obs, params))
 
     @route("/bulk", methods=["POST"])
@@ -71,16 +80,17 @@ class Observable(CrudApi):
         for item in bulk:
             value = item['value']
             tags = item.get('tags', [])
+            forced_type = item.get('force_type', None)
 
             if _refang:
-                obs = self.objectmanager.add_text(refang(value), tags)
+                obs = self.objectmanager.add_text(refang(value), tags=tags, force_type=forced_type)
             else:
-                obs = self.objectmanager.add_text(value, tags)
-            self._modify_observable(obs, {
-                'source': item.get('source'),
-                'context': item.get('context'),
-            })
-            added.append(obs)
+                obs = self.objectmanager.add_text(value, tags=tags, force_type=forced_type)
+            added.append(self._modify_observable(
+                obs, {
+                    'source': item.get('source'),
+                    'context': item.get('context'),
+                }))
         return render(added)
 
     @route("/<id>/context", methods=["POST"])

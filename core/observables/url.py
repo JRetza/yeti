@@ -6,6 +6,7 @@ from urlparse import urlparse
 import urlnorm
 from mongoengine import DictField
 
+from core.common.utils import tldextract_parser
 from core.observables import Observable
 from core.observables.hostname import Hostname
 from core.observables.ip import Ip
@@ -30,9 +31,9 @@ class Url(Observable):
 
     @classmethod
     def is_valid(cls, match):
-        return ((match.group('search').find('/') != -1) and
-                (Hostname.check_type(match.group('hostname')) or
-                 Ip.check_type(match.group('hostname'))))
+        return ((match.group('search').find('/') != -1) and (
+            Hostname.check_type(match.group('hostname')) or
+            Ip.check_type(match.group('hostname'))))
 
     def normalize(self):
         self.value = refang(self.value)
@@ -42,11 +43,15 @@ class Url(Observable):
                 # if no schema is specified, assume http://
                 self.value = u"http://{}".format(self.value)
             self.value = urlnorm.norm(self.value).replace(' ', '%20')
+            p = tldextract_parser(self.value)
+            self.value = self.value.replace(p.fqdn, p.fqdn.encode("idna").decode(), 1)
             self.parse()
         except urlnorm.InvalidUrl:
-            raise ObservableValidationError("Invalid URL: {}".format(self.value))
+            raise ObservableValidationError(
+                "Invalid URL: {}".format(self.value))
         except UnicodeDecodeError:
-            raise ObservableValidationError("Invalid URL (UTF-8 decode error): {}".format(self.value))
+            raise ObservableValidationError(
+                "Invalid URL (UTF-8 decode error): {}".format(self.value))
 
     def parse(self):
         parsed = urlparse(self.value)

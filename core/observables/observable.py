@@ -3,7 +3,7 @@ from __future__ import unicode_literals
 from datetime import datetime
 import re
 import operator
-
+import logging
 from mongoengine import *
 from flask_mongoengine.wtf import model_form
 from flask import url_for
@@ -36,9 +36,14 @@ class Observable(Node):
 
     SEARCH_ALIASES = {}
 
-    DISPLAY_FIELDS = [("value", "Value"), ("context", "Context"), ("tags", "Tags"), ("sources", "Sources"), ("created", "Created")]
+    DISPLAY_FIELDS = [("value", "Value"), ("context", "Context"),
+                      ("tags", "Tags"), ("sources",
+                                         "Sources"), ("created", "Created")]
 
-    value = StringField(verbose_name="Value", required=True, unique=True, sparse=True, max_length=1024)
+    value = StringField(
+        verbose_name="Value",
+        required=True,
+        sparse=True)
     sources = ListField(StringField(), verbose_name="Sources")
     description = StringField(verbose_name="Description")
     context = ListField(DictField(), verbose_name="Context")
@@ -48,20 +53,22 @@ class Observable(Node):
     created = DateTimeField(default=datetime.utcnow)
     last_tagged = DateTimeField(default=None)
 
-    exclude_fields = ['sources', 'context', 'last_analyses', 'created', 'attached_files', 'last_tagged']
+    exclude_fields = [
+        'sources', 'context', 'last_analyses', 'created', 'attached_files',
+        'last_tagged'
+    ]
 
     meta = {
-        "allow_inheritance": True,
+        "allow_inheritance":
+            True,
         "indexes": [
-            "tags",
-            "last_analyses",
-            "created",
-            {
+            "tags", "last_analyses", "created", {
                 "fields": ["#value"],
-                "cls": False
+                "cls": False,
             }
         ],
-        "index_background": True,
+        "index_background":
+            True,
         "ordering": ["-created"],
     }
 
@@ -91,26 +98,27 @@ class Observable(Node):
         Raises:
             ObservableValidationError if no type could be guessed.
         """
-        from core.observables import Url, Ip, Email, Path, Hostname, Hash, Bitcoin
+        from core.observables import Url, Ip, Email, Path, Hostname, Hash, Bitcoin, MacAddress
         if string and string.strip() != '':
-            for t in [Url, Ip, Email, Path, Hostname, Hash, Bitcoin]:
+            for t in [Url, Ip, Email, Path, Hostname, Hash, Bitcoin, MacAddress]:
                 if t.check_type(string):
                     return t
 
-        raise ObservableValidationError("{} was not recognized as a viable datatype".format(string))
+        raise ObservableValidationError(
+            "{} was not recognized as a viable datatype".format(string))
 
     @staticmethod
     def from_string(string):
-        from core.observables import Url, Ip, Hostname, Email, Hash
+        from core.observables import Url, Ip, Hostname, Email, Hash, MacAddress
 
         results = dict()
-        for t in [Url, Ip, Email, Hostname, Hash]:
+        for t in [Url, Ip, Email, Hostname, Hash, MacAddress]:
             results[t.__name__] = t.extract(string)
 
         return results
 
     @classmethod
-    def add_text(cls, text, tags=[]):
+    def add_text(cls, text, tags=[], force_type=None):
         """Adds and returns an observable for a given string.
 
         Args:
@@ -120,10 +128,16 @@ class Observable(Node):
             A saved Observable instance.
 
         """
-        o = Observable.guess_type(text).get_or_create(value=text)
+        if force_type:
+            observable_type = Observable.subclass_from_name(force_type)
+        else:
+            observable_type = Observable.guess_type(text)
+
+        o = observable_type.get_or_create(value=text)
         if tags:
             o.tag(tags)
         return o
+
 
     @classmethod
     def check_type(cls, txt):
@@ -142,20 +156,32 @@ class Observable(Node):
             search_regex = re.compile(cls.regex, re.UNICODE)
 
         for match in re.finditer(search_regex, txt):
-            if cls.is_valid(match):
-                try:
-                    observable = cls(value=match.group('search'))
-                    observable.normalize()
-                    if observable.value not in cls.ignore:
-                        # Replace with existing observable if there is one
-                        try:
-                            observable = cls.objects.get(value=observable.value)
-                        except cls.DoesNotExist:
-                            pass
+            try:
+                valid = cls.is_valid(match)
+            except UnicodeDecodeError:
+                continue
+            if not valid:
+                continue
 
-                        results[match.group('search')] = observable
-                except ObservableValidationError:
+            try:
+                observable = cls(value=match.group('search'))
+                observable.normalize()
+            except ObservableValidationError:
+                continue
+
+
+            except ValueError as e:
+                logging.error('Value error: {} - on: {}'.format(e, observable.value))
+                continue
+
+            if observable.value not in cls.ignore:
+                # Replace with existing observable if there is one
+                try:
+                    observable = cls.objects.get(value=observable.value)
+                except cls.DoesNotExist:
                     pass
+
+                results[match.group('search')] = observable
 
         return results
 
@@ -170,7 +196,9 @@ class Observable(Node):
         if self.check_type(self.value):
             self.normalize()
         else:
-            raise ObservableValidationError("'{}' is not a valid '{}'".format(self.value, self.__class__.__name__))
+            raise ObservableValidationError(
+                "'{}' is not a valid '{}'".format(
+                    self.value, self.__class__.__name__))
 
     @staticmethod
     def change_all_tags(old_tags, new_tag):
@@ -186,7 +214,7 @@ class Observable(Node):
             for old_tag in old_tags:
                 o.change_tag(old_tag, new_tag)
 
-    def add_context(self, context, replace_source=None):
+    def add_context(self, context, replace_source=None, dedup_list=[]):
         """Adds context to an Observable.
 
         "Context" is represented by a JSON object (or Python ``dict()``) that will
@@ -200,17 +228,33 @@ class Observable(Node):
             context: a JSON object representing the context to be added.
             replace_source: If defined, contexts having a ``source`` attribute
                             set to ``replace_source`` will be deleted before insert
-
+            dedup_list: takes a list of fields to ignore during dedup comparison.
+                         i.e. date/count type fields. Empty list will skip the partial
+                         dedup as dedup for the exact same context is already builtin.
         Returns:
             A fresh instance of the Observable as it exists in the database.
 
         """
         assert 'source' in context
-        context = {k: v for k, v in sorted(context.items(), key=operator.itemgetter(0))}
+        context = {
+            k: v
+            for k, v in sorted(context.items(), key=operator.itemgetter(0))
+        }
         if replace_source:
             # This does not work : cannot traverse and set context atomically
             # self.modify({"context__source": c}, set__context__S=context)
             self.modify(pull__context__source=replace_source)
+        if dedup_list:
+            for c in self.context:
+                remove = True
+                for key in c:
+                    if key in dedup_list:
+                        continue
+                    if c[key] != context.get(key, ''):
+                        remove = False
+                        break
+                if remove:
+                    self.modify(pull__context=c)
         self.modify(add_to_set__context=context)
 
         return self.reload()
@@ -225,7 +269,10 @@ class Observable(Node):
             A fresh instance of the Observable as it exists in the database.
 
         """
-        context = {k: v for k, v in sorted(context.items(), key=operator.itemgetter(0))}
+        context = {
+            k: v
+            for k, v in sorted(context.items(), key=operator.itemgetter(0))
+        }
         self.modify(pull__context=context)
         return self.reload()
 
@@ -273,9 +320,13 @@ class Observable(Node):
             return False
 
     def change_tag(self, old_tag, new_tag):
-        if not self.modify({"tags__name": old_tag, "tags__name__ne": new_tag}, set__tags__S__name=new_tag):
+        if not self.modify({"tags__name": old_tag, "tags__name__ne": new_tag},
+                           set__tags__S__name=new_tag):
             self.modify({"tags__name": old_tag}, pull__tags__name=old_tag)
-            self.modify({"tags__name": new_tag}, set__tags__S__last_seen=datetime.utcnow())
+            self.modify({
+                "tags__name": new_tag
+            },
+                        set__tags__S__last_seen=datetime.utcnow())
         return self.reload()
 
     def untag(self, tags):
@@ -330,8 +381,12 @@ class Observable(Node):
                     self.active_link_to(e, 'Tagged', 'tags', clean_old=False)
 
                 for tag in extra_tags:
-                    if not self.modify({"tags__name": tag.name}, set__tags__S__fresh=True, set__tags__S__last_seen=datetime.utcnow()):
-                        self.modify(push__tags=ObservableTag(name=tag.name, expiration=expiration))
+                    if not self.modify(
+                        {"tags__name": tag.name}, set__tags__S__fresh=True,
+                            set__tags__S__last_seen=datetime.utcnow()):
+                        self.modify(
+                            push__tags=ObservableTag(
+                                name=tag.name, expiration=expiration))
                         tag.modify(inc__count=1)
 
         if tagged:
@@ -360,10 +415,12 @@ class Observable(Node):
     def expire_tags(self):
         for tag in self.tags:
             if tag.expiration:
-                if (tag.last_seen + tag.expiration) < datetime.utcnow() and tag.fresh:
+                if (tag.last_seen +
+                        tag.expiration) < datetime.utcnow() and tag.fresh:
                     tag.fresh = False
                     self.save()
-                elif (tag.last_seen + tag.expiration) > datetime.utcnow() and not tag.fresh:
+                elif (tag.last_seen +
+                      tag.expiration) > datetime.utcnow() and not tag.fresh:
                     tag.fresh = True
                     self.save()
         return self
@@ -376,11 +433,23 @@ class Observable(Node):
         return self.modify(**{"set__last_analyses__{}".format(module_name): ts})
 
     def info(self):
-        i = {k: v for k, v in self._data.items() if k in ["value", "context", "last_analyses", "created", "sources", "description"]}
+        i = {
+            k: v
+            for k, v in self._data.items()
+            if k in [
+                "value", "context", "last_analyses", "created", "sources",
+                "description"
+            ]
+        }
         i['tags'] = [t.info() for t in self.tags]
         if self.id:
             i['id'] = str(self.id)
         i['type'] = self.__class__.__name__
-        i['url'] = url_for("api.Observable:post", id=str(self.id), _external=True)
-        i['human_url'] = url_for("frontend.ObservableView:get", id=str(self.id), _external=True)
+        try:
+            i['url'] = url_for(
+                "api.Observable:post", id=str(self.id), _external=True)
+            i['human_url'] = url_for(
+                "frontend.ObservableView:get", id=str(self.id), _external=True)
+        except RuntimeError:
+            pass
         return i

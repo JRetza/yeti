@@ -1,3 +1,5 @@
+sudo: required
+
 language: python
 python:
   - "2.7"
@@ -15,10 +17,20 @@ addons:
       - libxslt-dev
       - zlib1g-dev
 
+before_install:
+  - sudo mkdir /var/log/yeti
+  - sudo chown $USER /var/log/yeti
+
 install:
   - pip install -r requirements.txt
+  - git clone https://github.com/yeti-platform/pyeti.git
+  - pip install -r pyeti/requirements.txt
+  - ln -s ../../../contrib/analytics/ivre_api/ivre_api.py plugins/analytics/private/
+  - pip install -r contrib/analytics/ivre_api/requirements.txt
 
 script:
   - ./yeti.py webserver &
   - sleep 5
   - curl -I -L http://127.0.0.1:5000
+  - cd pyeti
+  - nosetests

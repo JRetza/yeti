@@ -2,22 +2,22 @@ from __future__ import unicode_literals
 
 import idna
 from mongoengine import BooleanField, StringField
-from tldextract import extract
+from core.common.utils import tldextract_parser
 
 from core.errors import ObservableValidationError
 from core.observables import Observable
 from core.helpers import refang
 
-
 class Hostname(Observable):
 
-    main_regex = r'[-.\w[\]]+\[?\.\]?[\w]+'
+    main_regex = r'[-.\w[\]]+\[?\.\]?[\w-]+'
     regex = r'(?P<pre>\W?)(?P<search>' + main_regex + ')(?P<post>\W?)'
 
     domain = BooleanField()
     idna = StringField()
 
-    DISPLAY_FIELDS = Observable.DISPLAY_FIELDS + [("domain", "Domain?"), ("idna", "IDNA")]
+    DISPLAY_FIELDS = Observable.DISPLAY_FIELDS + [("domain", "Domain?"),
+                                                  ("idna", "IDNA")]
 
     @classmethod
     def is_valid(cls, match):
@@ -28,7 +28,7 @@ class Hostname(Observable):
             value = refang(match.group('search'))
 
             if len(value) <= 255:
-                parts = extract(value)
+                parts = tldextract_parser(value)
                 if parts.suffix and parts.domain:
                     return True
 
@@ -36,6 +36,9 @@ class Hostname(Observable):
 
     def normalize(self):
         self.value = refang(self.value.lower())
+        # Remove trailing dot if existing
+        if self.value.endswith("."):
+            self.value = self.value[:-1]
         try:
             self.idna = unicode(idna.encode(self.value))
         except idna.core.InvalidCodepoint:

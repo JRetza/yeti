@@ -7,7 +7,6 @@ from json import dumps
 
 from core.web.json import to_json, recursive_encoder
 
-
 api = Blueprint("api", __name__, template_folder="templates")
 
 # If you're querying Yeti's API from another app,
@@ -40,6 +39,8 @@ from core.web.api.links import Link
 from core.web.api.attached_files import AttachedFiles
 from core.web.api.file import File
 from core.web.api.useradmin import UserAdminSearch
+from core.web.api.groupadmin import GroupAdminSearch
+
 
 Analysis.register(api)
 
@@ -73,3 +74,4 @@ AttachedFiles.register(api)
 File.register(api)
 
 UserAdminSearch.register(api)
+GroupAdminSearch.register(api)

@@ -8,7 +8,7 @@ from core.observables import Observable
 from core.web.api.crud import CrudApi
 from core import analytics
 from core.analytics_tasks import schedule
-from core.web.api.api import render
+from core.web.api.api import render, render_json
 from core.web.helpers import get_object_or_404
 from core.web.helpers import requires_permissions
 
@@ -82,12 +82,15 @@ class OneShotAnalytics(CrudApi):
             info = obj.info()
 
             info['available'] = True
-            if hasattr(obj, 'settings') and not current_user.has_settings(obj.settings):
+            if hasattr(
+                    obj,
+                    'settings') and not current_user.has_settings(obj.settings):
                 info['available'] = False
 
             data.append(info)
 
         return render(data, template=self.template)
+
 
     @route("/<id>/toggle", methods=["POST"])
     @requires_permissions("toggle")
@@ -122,7 +125,9 @@ class OneShotAnalytics(CrudApi):
         analytics = get_object_or_404(self.objectmanager, id=id)
         observable = get_object_or_404(Observable, id=request.form.get('id'))
 
-        return render(analytics.run(observable, current_user.settings).to_mongo())
+        result = analytics.run(observable, current_user.settings).to_mongo()
+        result.pop('settings')
+        return render_json(result)
 
     def _analytics_results(self, results):
         """Query an analytics status
@@ -154,6 +159,7 @@ class OneShotAnalytics(CrudApi):
 
         results = results.to_mongo()
         results['results'] = {'nodes': nodes, 'links': links}
+        results.pop('settings')
 
         return results
 
@@ -161,14 +167,17 @@ class OneShotAnalytics(CrudApi):
     @requires_permissions("read")
     def status(self, id):
         results = get_object_or_404(analytics.AnalyticsResults, id=id)
-
         return render(self._analytics_results(results))
 
     @route('/<id>/last/<observable_id>')
     @requires_permissions("read")
     def last(self, id, observable_id):
         try:
-            results = analytics.AnalyticsResults.objects(analytics=id, observable=observable_id, status="finished").order_by('-datetime').limit(1)
-            return render(self._analytics_results(results[0]))
+            results = analytics.AnalyticsResults.objects(
+                analytics=id, observable=observable_id,
+                status="finished").order_by('-datetime').limit(1)
+            results = self._analytics_results(results[0])
+            results.pop('settings')
+            return render(results)
         except:
             return render(None)

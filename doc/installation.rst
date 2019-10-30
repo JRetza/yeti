@@ -3,7 +3,7 @@
 Installation
 ============
 
-Installing Yeti is pretty straightforward. This procedure was tested on Ubuntu 16.04, but YMMV.
+Installing Yeti is pretty straightforward. This procedure was tested on Ubuntu 18.04, but YMMV.
 
 Install dependencies::
 
@@ -24,6 +24,11 @@ Activate virtualenv if you want to, then install requirements::
   $ cd yeti
   $ [sudo] pip install -r requirements.txt
   $ yarn install
+
+Create the logging directory::
+
+  $ [sudo] mkdir /var/log/yeti
+  $ [sudo] chown <user> /var/log/yeti
 
 Quick & dirty
 -------------

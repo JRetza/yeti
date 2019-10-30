@@ -1,3 +1,19 @@
+[auth]
+
+##
+## Use these settings to configure Yeti authentication.
+##
+
+# module = local
+
+##
+## If you specify module = apache, you can set the environment
+## variable from which the username can be retrieved (defaults to
+## REMOTE_USER).
+##
+
+# apache_variable = REMOTE_USER
+
 [mongodb]
 
 ##
@@ -43,3 +59,24 @@
 # name = MISP_1
 # url = MISP_URL
 # key = MISP_AUTH_KEY
+
+[proxy]
+
+# http = socks5://user:pass@host:port
+# https = socks5://user:pass@host:port
+
+[maxmind]
+
+# path = /full/path/to/GeoLite2-City.mmdb
+
+[tldextract]
+# comma separated list of tlds, WITHOUT dots, example: bit,tor2web,pw
+# extra_suffixes =
+# suffix_list_urls =
+
+[github]
+# Generate token: https://github.com/settings/tokens
+# Select repo only
+# no token - limit 60 r/h
+# w/ token - limit 5k r/h
+# token =

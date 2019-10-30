@@ -1,8 +1,9 @@
-from pprint import pformat
+import logging
 import shodan
+import json
 from core.analytics import OneShotAnalytics
 from core.entities import Company
-from core.observables import Text, Hostname
+from core.observables import Hostname, AutonomousSystem
 
 
 class ShodanApi(object):
@@ -16,17 +17,17 @@ class ShodanApi(object):
     @staticmethod
     def fetch(observable, api_key):
         try:
-            r = shodan.Shodan(api_key).host(observable.value)
-        except shodan.APIError, e:
-            print 'Error: %s' % e
-        return r
+            return shodan.Shodan(api_key).host(observable.value)
+        except shodan.APIError as e:
+            logging.error('Error: {}'.format(e))
 
 
 class ShodanQuery(OneShotAnalytics, ShodanApi):
     default_values = {
         "name": "Shodan",
-        "description": "Perform a Shodan query on the IP address and tries to"
-                       " extract relevant information."
+        "description":
+            "Perform a Shodan query on the IP address and tries to"
+            " extract relevant information."
     }
 
     ACTS_ON = "Ip"
@@ -35,13 +36,19 @@ class ShodanQuery(OneShotAnalytics, ShodanApi):
     def analyze(ip, results):
         links = set()
         result = ShodanApi.fetch(ip, results.settings['shodan_api_key'])
-        results.update(raw=pformat(result))
+        json_string = json.dumps(
+            result,
+            sort_keys=True,
+            indent=4,
+            separators=(',', ': ')
+        )
+        results.update(raw=json_string)
 
         if 'tags' in result and result['tags'] is not None:
             ip.tag(result['tags'])
 
         if 'asn' in result and result['asn'] is not None:
-            o_asn = Text.get_or_create(value=result['asn'])
+            o_asn = AutonomousSystem.get_or_create(value=result['asn'].replace("AS", ""))
             links.update(ip.active_link_to(o_asn, 'asn#', 'Shodan Query'))
 
         if 'hostnames' in result and result['hostnames'] is not None:

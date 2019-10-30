@@ -46,7 +46,7 @@ span.yeti-toggle {
   overflow-x: scroll;
 }
 
-.paginator {
+.paginator, .crud-paginator {
   cursor:pointer;
 }
 
@@ -144,6 +144,7 @@ input.dropzone {
   margin: 0 1px 0 1px;
   font-size: 85%;
   cursor: default;
+  border: 1px solid grey;
 }
 
 .yeti-edit-elt:hover .yeti-tag,
@@ -176,6 +177,26 @@ input.dropzone {
 .tag-blocklist {
   color: white;
 	background-color: #e33;
+}
+
+.tag-tlp_red {
+    background-color: #e33;
+    color: white;
+}
+
+.tag-tlp_amber {
+    background-color: gold;
+    color: black;
+}
+
+.tag-tlp_green {
+    background-color: MediumSpringGreen;
+    color: black;
+}
+
+.tag-tlp_white {
+    background-color: white;
+    color: black;
 }
 
 .yeti-interact .yeti-tag  {
@@ -317,6 +338,7 @@ input.dropzone {
     color: white
 }
 
+#graph-select-all,
 #graph-sidebar-value-actions a,
 #graph-sidebar-tabs a {
     color: #00CCFF;
@@ -344,11 +366,13 @@ input.dropzone {
     border-bottom: 1px dashed #888888;
 }
 
+.graph-sidebar-related-investigation-list,
 .graph-sidebar-links {
     padding: 0;
     list-style-type: none;
 }
 
+.graph-sidebar-related-investigation-list li,
 .graph-sidebar-links li {
     padding-bottom: 5px;
     margin-bottom: 5px;
@@ -363,6 +387,11 @@ li.graph-sidebar-link-description {
 
 li.graph-sidebar-border-bottom {
     border-bottom: 1px dashed #888888;
+}
+
+#graph-sidebar-related-investigation-title {
+    border-bottom: 1px solid #888888;
+    padding-bottom: 5px;
 }
 
 .graph-sidebar-history {
@@ -383,21 +412,55 @@ li.graph-sidebar-border-bottom {
     max-width: 500px;
 }
 
+.graph-sidebar-related-investigation-label,
 .graph-sidebar-link-label {
     color: #BBBBBB;
     font-style: italic;
 }
 
+.analytics-results {
+    padding-left: 15px;
+    padding-right: 15px;
+}
+
+.graph-sidebar-analytics {
+    padding-top: 2px;
+    padding-bottom: 2px;
+    border-bottom: 1px dotted white;
+}
+
+.graph-sidebar-analytics:last-child {
+    border-bottom: 0;
+}
+
+.graph-sidebar-analytics-group {
+    margin-top: 20px;
+    margin-left: -20px;
+    margin-right: -20px;
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #00CCFF;
+}
+
+.graph-sidebar-related-investigation-actions,
+.graph-sidebar-analytics-actions,
 .graph-sidebar-link-actions {
     color: #00CCFF;
     float: right;
 }
 
+.graph-sidebar-analytics-actions a {
+    margin: 0;
+}
+
+.graph-sidebar-related-investigation-list a,
 .graph-sidebar-links a,
 a.graph-analytics-results-links {
     color: #00CCFF;
 }
 
+.graph-sidebar-related-investigation-list a:hover,
 #graph-sidebar-value-actions a:hover,
 .graph-sidebar-links a:hover,
 a.graph-analytics-results-links:hover {
@@ -447,6 +510,16 @@ a.graph-analytics-results-links {
 }
 
 .graph-sidebar-tags .yeti-tag {
+    background-color: #00CCFF;
+}
+
+.graph-sidebar-taglist {
+    line-height: 24px;
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+
+.graph-sidebar-taglist .yeti-tag {
     background-color: #00CCFF;
 }
 
@@ -595,10 +668,6 @@ ul.ui-autocomplete {
     padding-left: 10px;
 }
 
-.graph-sidebar-run-analytics {
-    margin-right: 10px;
-}
-
 .graph-sidebar-analytics-last-run {
     font-style: italic;
     color: #BBBBBB;
@@ -673,7 +742,7 @@ td input.inline {
   text-align: right;
 }
 
-.user-toggle, .user-remove {
+.admin-toggle, .admin-remove {
   cursor:pointer;
 }
 
@@ -756,4 +825,99 @@ td input.inline {
 .alert h1 {
     margin-top: 0;
     font-size: 13px;
+}
+
+.graph-panels .panel {
+    background-color: transparent;
+    border: 0;
+    margin-left: -20px;
+    margin-right: -20px;
+}
+
+.graph-panels .panel-heading {
+    background-color: #00CCFF;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+.graph-panels .panel-title>a {
+    color: white;
+}
+
+.graph-panels .btn-primary {
+    background-color: #00CCFF;
+}
+
+.graph-panels h4 {
+    font-weight: normal;
+}
+
+.graph-sidebar-selected-node {
+    padding: 5px;
+    border-bottom: 1px dashed #888888;
+}
+
+.graph-sidebar-selected-node:last-child {
+    border-bottom: 0;
+}
+
+.sliding-container {
+    position: relative;
+}
+
+.analytics-results-slider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -100%;
+    left: 100%;
+    background-color: #495B6C;
+    transition: right 0.2s ease 0.01s, left 0.2s ease 0.01s;
+    z-index: 50;
+    padding-bottom: 20px;
+}
+
+.analytics-results-slider.no-overflow {
+    overflow: hidden;
+    height: 0;
+    width: 0;
+}
+
+.analytics-results-slider.slide-right {
+    right: 0;
+    left: 0;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+
+.analytics-results-close {
+    float: right;
+    color: white;
+    background-color: transparent;
+    border: 0;
+    margin-right: 15px;
+}
+
+.analytics-results-close:hover {
+    color: white;
+}
+
+
+#graph-sidebar h4.analytics-results-title {
+    margin-top: 20px;
+    margin-bottom: 20px;
+    padding-left: 20px;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.analytics-results-node {
+    border-bottom: 2px solid #00CCFF;
+    padding-bottom: 5px;
+    padding-left: 20px;
+    padding-right: 15px;
+    margin-top: 20px;
+    margin-bottom: 10px;
 }

@@ -50,6 +50,8 @@ class Config:
 
 
 yeti_config = Config()
+yeti_config.set_default_value('auth', 'module', 'local')
+yeti_config.set_default_value('auth', 'apache_variable', 'REMOTE_USER')
 yeti_config.set_default_value('mongodb', 'host', '127.0.0.1')
 yeti_config.set_default_value('mongodb', 'port', 27017)
 yeti_config.set_default_value('mongodb', 'database', 'yeti')
@@ -58,3 +60,6 @@ yeti_config.set_default_value('mongodb', 'password', None)
 yeti_config.set_default_value('redis', 'host', '127.0.0.1')
 yeti_config.set_default_value('redis', 'port', 6379)
 yeti_config.set_default_value('redis', 'database', 0)
+yeti_config.set_default_value('proxy', 'http', None)
+yeti_config.set_default_value('proxy', 'https', None)
+yeti_config.set_default_value('logging', 'filename', '/var/log/yeti/user_activity.log')
